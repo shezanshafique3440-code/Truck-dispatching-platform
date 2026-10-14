@@ -1,0 +1,35 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DISPATCH_DOMAIN};
+    location ^~ /.well-known/acme-challenge/ {
+        root ${DISPATCH_ACME_ROOT};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+    location / { return 301 https://$host$request_uri; }
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${DISPATCH_DOMAIN};
+    ssl_certificate /etc/letsencrypt/live/${DISPATCH_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DISPATCH_DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=86400" always;
+
+    location / {
+        client_max_body_size 3m;
+        proxy_pass http://127.0.0.1:${DISPATCH_APP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # Overwrite incoming client headers. Trust this only with isolated origin access.
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_cache off;
+        proxy_buffering off;
+        proxy_read_timeout 60s;
+    }
+}

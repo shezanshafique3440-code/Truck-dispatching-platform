@@ -1,0 +1,356 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  DISPATCHER
+}
+enum EntrySource {
+  MANUAL
+  EXCEL
+  IMPORT
+}
+enum ImportState {
+  STAGED
+  COMMITTED
+}
+enum PerformanceState {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  ONBOARDING
+  WON
+  LOST
+}
+enum LeadSource {
+  MANUAL
+  CONSULTATION
+}
+enum ContactMethod {
+  EMAIL
+  PHONE
+}
+enum InquiryNotificationStatus {
+  NOT_CONFIGURED
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id            String             @id @default(cuid())
+  email         String             @unique
+  name          String
+  emailVerified Boolean            @default(false)
+  image         String?
+  role          Role               @default(DISPATCHER)
+  active        Boolean            @default(true)
+  sessions      Session[]
+  accounts      Account[]
+  memberships   Membership[]
+  assignments   CampaignAssignment[]
+  assignedLeads Lead[]
+  performance   PerformanceEntry[] @relation("DispatcherEntries")
+  submissions   PerformanceEntry[] @relation("SubmittedEntries")
+  approvals     PerformanceEntry[] @relation("ApprovedEntries")
+  imports       ImportBatch[]
+  invitations   Invitation[]       @relation("Inviter")
+  auditEvents   AuditEvent[]
+  leadNotes     LeadNote[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+// Better Auth core schema. Tokens are managed by the maintained library.
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, expiresAt])
+}
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@index([identifier])
+}
+model RateLimit {
+  id          String @id @default(cuid())
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+}
+
+model Team {
+  id          String             @id @default(cuid())
+  name        String
+  active      Boolean            @default(true)
+  memberships Membership[]
+  campaigns   Campaign[]
+  performance PerformanceEntry[]
+  invitations InvitationTeam[]
+  leads       Lead[]
+  imports     ImportBatch[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
+model Membership {
+  userId    String
+  teamId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  @@id([userId, teamId])
+  @@index([teamId, userId])
+}
+model Campaign {
+  id          String               @id @default(cuid())
+  name        String
+  description String?
+  status      CampaignStatus       @default(DRAFT)
+  timezone    String               @default("UTC")
+  tracksLoads Boolean              @default(true)
+  teamId      String
+  team        Team                 @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  assignments CampaignAssignment[]
+  leads       Lead[]
+  performance PerformanceEntry[]
+  imports     ImportBatch[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  @@index([teamId, status])
+}
+model CampaignAssignment {
+  campaignId String
+  userId     String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+  @@id([campaignId, userId])
+  @@index([userId, campaignId])
+}
+model Lead {
+  id           String     @id @default(cuid())
+  name         String
+  email        String?
+  phone        String?
+  companyName  String?
+  equipmentType String?
+  fleetSize    Int?
+  preferredContactMethod ContactMethod?
+  // The public message is separate from all private notes.
+  message      String?
+  source       LeadSource @default(MANUAL)
+  notes        String?
+  internalNotes LeadNote[]
+  status       LeadStatus @default(NEW)
+  // Untriaged public inquiries have no team/campaign and are admin-only.
+  teamId       String?
+  team         Team?      @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  campaignId   String?
+  campaign     Campaign?  @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  assignedToId String?
+  assignedTo   User?      @relation(fields: [assignedToId], references: [id], onDelete: Restrict)
+  followUpDate DateTime?  @db.Date
+  version      Int        @default(1)
+  submissionKey String?   @unique
+  submissionHash String?
+  notificationStatus InquiryNotificationStatus @default(NOT_CONFIGURED)
+  notificationAttemptedAt DateTime?
+  notifiedAt   DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  @@index([campaignId, status])
+  @@index([assignedToId])
+  @@index([teamId, status, createdAt])
+  @@index([source, status, createdAt])
+  @@index([followUpDate])
+}
+model LeadNote {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  body      String
+  createdAt DateTime @default(now())
+  @@index([leadId, createdAt])
+}
+
+model PerformanceEntry {
+  id            String       @id @default(cuid())
+  dispatcherId  String
+  dispatcher    User         @relation("DispatcherEntries", fields: [dispatcherId], references: [id], onDelete: Restrict)
+  // Snapshot the reporting team; historical records do not follow reassignment.
+  teamId        String?
+  team          Team?        @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  campaignId    String?
+  campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  date          DateTime     @db.Date
+  // date is a calendar work date in this immutable campaign-timezone snapshot.
+  workTimezone  String       @default("UTC")
+  callsMade     Int          @default(0)
+  followUpsCompleted Int     @default(0)
+  qualifiedLeads Int         @default(0)
+  carriersSigned Int         @default(0)
+  loadsRelevant Boolean     @default(true)
+  loads         Int?
+  grossRevenue  Decimal?     @db.Decimal(18, 2)
+  dispatchFees  Decimal      @default(0) @db.Decimal(18, 2)
+  refunds       Decimal      @default(0) @db.Decimal(18, 2)
+  adjustments   Decimal      @default(0) @db.Decimal(18, 2)
+  currency      String       @db.VarChar(3)
+  notes         String?
+  source        EntrySource  @default(MANUAL)
+  submittedById String
+  submittedBy   User         @relation("SubmittedEntries", fields: [submittedById], references: [id], onDelete: Restrict)
+  importBatchId String?
+  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+  importRowId   String?      @unique
+  importRow     ImportRow?   @relation(fields: [importRowId], references: [id], onDelete: Restrict)
+  archivedAt    DateTime?
+  state         PerformanceState @default(DRAFT)
+  version       Int          @default(1)
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  approvedById  String?
+  approvedBy    User?        @relation("ApprovedEntries", fields: [approvedById], references: [id], onDelete: Restrict)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  @@unique([dispatcherId, campaignId, date])
+  @@index([date, dispatcherId])
+  @@index([teamId, date])
+  @@index([campaignId, date])
+  @@index([state, currency, campaignId, date])
+  @@index([teamId, state, date])
+}
+model ImportBatch {
+  id           String             @id @default(cuid())
+  fileName     String
+  importedById String
+  importedBy   User               @relation(fields: [importedById], references: [id], onDelete: Restrict)
+  entries      PerformanceEntry[]
+  campaignId   String?
+  campaign     Campaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  teamId       String?
+  team         Team? @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  fileType     String?
+  contentHash  String?
+  requestKey   String? @unique
+  state        ImportState @default(STAGED)
+  version      Int @default(1)
+  headers      Json?
+  mapping      Json?
+  validationContext Json?
+  importRole   Role?
+  totalRows    Int @default(0)
+  validRows    Int @default(0)
+  invalidRows  Int @default(0)
+  rows         ImportRow[]
+  expiresAt    DateTime?
+  committedAt  DateTime?
+  createdAt    DateTime           @default(now())
+  @@unique([importedById, campaignId, contentHash])
+  @@index([importedById, createdAt])
+  @@index([teamId, campaignId, createdAt])
+}
+model ImportRow {
+  id         String @id @default(cuid())
+  batchId    String
+  batch      ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber  Int
+  cells      Json
+  parseErrors Json
+  errors     Json
+  normalized Json?
+  valid      Boolean @default(false)
+  entry      PerformanceEntry?
+  @@unique([batchId, rowNumber])
+  @@index([batchId, valid, rowNumber])
+}
+
+model Invitation {
+  id         String           @id @default(cuid())
+  tokenHash  String           @unique
+  email      String
+  role       Role
+  invitedById String?
+  invitedBy  User?            @relation("Inviter", fields: [invitedById], references: [id], onDelete: Restrict)
+  teams      InvitationTeam[]
+  bootstrap  Boolean          @default(false)
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime          @default(now())
+  @@index([email, expiresAt])
+}
+model InvitationTeam {
+  invitationId String
+  teamId       String
+  invitation   Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  team         Team       @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  @@id([invitationId, teamId])
+}
+model AuditEvent {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  action     String
+  entityType String
+  entityId   String?
+  teamId     String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  @@index([createdAt])
+  @@index([teamId, createdAt])
+}
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

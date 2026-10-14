@@ -1,0 +1,67 @@
+{
+  "name": "truck-dispatching-platform",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "test:smoke": "tsx scripts/smoke.ts",
+    "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
+    "security:prune": "tsx scripts/prune-security.ts",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "better-auth": "^1.7.7",
+    "csv-parse": "7.0.3",
+    "dotenv": "^17.2.0",
+    "fast-xml-parser": "5.11.2",
+    "fflate": "0.8.3",
+    "next": "16.4.0",
+    "pg": "^8.16.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "read-excel-file": "9.3.12",
+    "server-only": "^0.0.1",
+    "write-excel-file": "4.1.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24",
+    "@types/pg": "^8",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0",
+    "postcss": "^8",
+    "prisma": "7.10.0",
+    "tailwindcss": "^4",
+    "tsx": "^4",
+    "typescript": "^5.9.0",
+    "vitest": "^4"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.0"
+    },
+    "prisma": {
+      "mysql2": "3.24.6"
+    }
+  },
+  "type": "module"
+}

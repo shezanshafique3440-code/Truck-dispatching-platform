@@ -1,0 +1,6 @@
+import { ImageResponse } from "next/og";
+import { company } from "@/config/company";
+export const dynamic = "force-static";
+export async function GET() {
+  return new ImageResponse(<div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", padding: "64px", background: "#0B1220", color: "white" }}><div style={{ display: "flex", alignItems: "center", gap: "22px", fontSize: 34, fontWeight: 700 }}><div style={{ display: "flex", width: 68, height: 68, alignItems: "center", justifyContent: "center", color: "#0B1220", background: "#F97316", fontSize: 45 }}>N</div>{company.name}</div><div style={{ display: "flex", flexDirection: "column", marginTop: 76, fontSize: 68, fontWeight: 700, letterSpacing: "-2px", lineHeight: 1.12 }}><span>Keep Your Trucks Moving.</span><span>Keep Your Business Growing.</span></div><div style={{ display: "flex", marginTop: 42, color: "#c2ccda", fontSize: 24 }}>Truck dispatching for trucking companies and owner-operators</div><div style={{ display: "flex", position: "absolute", bottom: 0, left: 0, height: 8, width: "100%", background: "#F97316" }} /></div>, { width: 1200, height: 630, headers: { "Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff" } });
+}

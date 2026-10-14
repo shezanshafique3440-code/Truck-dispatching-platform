@@ -1,0 +1,102 @@
+name: ${COMPOSE_PROJECT_NAME:?Set a unique COMPOSE_PROJECT_NAME}
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${APP_DB_USER:?Set APP_DB_USER}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD}@db:5432/${APP_DATABASE_NAME:-${POSTGRES_DB:?Set POSTGRES_DB}}?schema=public
+  AUTH_SECRET: ${AUTH_SECRET:?Set a random AUTH_SECRET}
+  APP_URL: ${APP_URL:?Set the exact HTTPS origin}
+  PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:?Set the approved public HTTPS origin before building}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  INQUIRY_NOTIFICATION_EMAIL: ${INQUIRY_NOTIFICATION_EMAIL:-}
+  TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: ${POSTGRES_IMAGE:-postgres:17}
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a random maintenance password}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      APP_DB_USER: ${APP_DB_USER:?Set APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set a random application database password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/10-application-role.sh:/docker-entrypoint-initdb.d/10-application-role.sh:ro
+    networks: [database]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *logging
+
+  app:
+    image: ${APP_IMAGE:-northlane-dispatch-app}:${IMAGE_TAG:?Set an immutable release IMAGE_TAG}
+    build:
+      context: .
+      target: runner
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm-slim}
+        NODE_BUILD_IMAGE: ${NODE_BUILD_IMAGE:-node:24-bookworm}
+        PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:?Set the approved public HTTPS origin}
+    environment: *app-environment
+    ports:
+      - "127.0.0.1:${APP_BIND_PORT:-3108}:3000"
+    networks: [web, database]
+    volumes:
+      - next_cache:/app/.next/cache
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+  ops:
+    profiles: [ops]
+    image: ${OPS_IMAGE:-northlane-dispatch-ops}:${IMAGE_TAG:?Set IMAGE_TAG}
+    build:
+      context: .
+      target: ops
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm-slim}
+        NODE_BUILD_IMAGE: ${NODE_BUILD_IMAGE:-node:24-bookworm}
+        PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:?Set the approved public HTTPS origin}
+    environment:
+      <<: *app-environment
+      NPM_CONFIG_CACHE: /tmp/northlane-ops-npm
+    networks: [database]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  postgres_data:
+  next_cache:
+
+networks:
+  database:
+    internal: true
+  web:

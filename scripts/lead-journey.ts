@@ -1,0 +1,106 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import type { PrismaClient } from "../src/generated/prisma/client";
+type Result = { response: Response; body: Record<string, unknown> | Record<string, unknown>[]; text: string };
+type Api = (path: string, cookie?: string, method?: string, body?: unknown, origin?: string) => Promise<Result>;
+type Member = { cookie: string; user: { id: string } };
+export async function verifyLeadJourney(context: { api: Api; db: PrismaClient; base: string; prefix: string; admin: string; manager: Member; dispatcher: Member; other: Member; teamA: string; teamB: string; campaignA: string; campaignB: string; inaccessibleCampaign: string }) {
+  const { api, db, base, prefix, admin, manager, dispatcher, other, teamA, teamB, campaignA, campaignB, inaccessibleCampaign } = context;
+  let checks = 0;
+  function check(value: unknown, message?: string) { assert.ok(value, message); checks++; }
+  async function expectStatus(path: string, expected: number, cookie = "", method = "GET", body?: unknown, origin?: string) {
+    const result = await api(path, cookie, method, body, origin); assert.equal(result.response.status, expected, `${method} ${path}: ${result.text.slice(0, 160)}`); checks++; return result;
+  }
+  const body = { requestId: randomUUID(), contactName: `${prefix}-consultation`, companyName: `${prefix}-carrier`, email: `${prefix}-contact@example.invalid`, phone: "+1 (202) 555-0100", equipmentType: "reefer", fleetSize: 3, preferredContactMethod: "PHONE", message: "Review our preferred lanes and scheduling needs." };
+  const beforeTotal = await db.lead.count();
+  for (const path of ["/api/leads", "/api/leads/counts", "/api/leads/modified-id", "/api/workspace/leads/export"]) await expectStatus(path, 401);
+  await expectStatus("/api/leads/modified-id/notes", 401, "", "POST", { body: "Unauthorized note" });
+  await expectStatus("/api/consultations", 405);
+  await expectStatus("/api/consultations", 403, "", "POST", body, "https://untrusted.example");
+  for (const patch of [{ contactName: "" }, { fleetSize: 1.5 }, { equipmentType: "unsupported" }, { assignedToId: other.user.id }, { notes: "public note injection" }, { website: "spam.example" }]) await expectStatus("/api/consultations", 400, "", "POST", { ...body, ...patch });
+  await expectStatus("/api/consultations", 413, "", "POST", { ...body, message: "x".repeat(17000) });
+  check(await db.lead.count() === beforeTotal, "Invalid/abusive requests must not persist leads");
+  await db.rateLimit.deleteMany({});
+  const baseline = (await expectStatus("/api/leads/counts", 200, admin)).body as Record<string, number>;
+  const submitted = await expectStatus("/api/consultations", 201, "", "POST", body);
+  check(JSON.stringify(submitted.body) === JSON.stringify({ saved: true, notification: "not_configured" }), "Public response must contain only the actual save and mail outcomes");
+  const lead = await db.lead.findUniqueOrThrow({ where: { submissionKey: body.requestId } });
+  check(lead.name === body.contactName && lead.companyName === body.companyName && lead.fleetSize === 3 && lead.equipmentType === "reefer" && lead.preferredContactMethod === "PHONE" && lead.message === body.message);
+  check(lead.teamId === null && lead.campaignId === null && lead.assignedToId === null && lead.notes === null && lead.source === "CONSULTATION" && lead.status === "NEW");
+  await expectStatus("/api/consultations", 200, "", "POST", body);
+  check(await db.lead.count({ where: { submissionKey: body.requestId } }) === 1, "Interrupted-response retry must not create another lead");
+  await expectStatus("/api/consultations", 409, "", "POST", { ...body, message: "Changed after the original request" });
+  await expectStatus(`/api/leads/${lead.id}`, 401);
+  await expectStatus(`/api/leads/${lead.id}`, 404, manager.cookie);
+  await expectStatus(`/api/leads/${lead.id}`, 404, dispatcher.cookie);
+  await expectStatus(`/api/leads/${lead.id}`, 404, other.cookie);
+  const counts = (await expectStatus("/api/leads/counts", 200, admin)).body as Record<string, number>;
+  check(counts.newInquiries === baseline.newInquiries + 1 && counts.untriaged === baseline.untriaged + 1);
+  const hidden = await expectStatus(`/api/leads?q=${encodeURIComponent(body.contactName)}`, 200, manager.cookie);
+  check((hidden.body as { total: number }).total === 0);
+  await expectStatus(`/api/leads/${lead.id}`, 404, manager.cookie, "PATCH", { version: 1, teamId: teamA });
+  await expectStatus(`/api/leads/${lead.id}`, 404, admin, "PATCH", { version: 1, teamId: teamA, campaignId: campaignB });
+  await expectStatus(`/api/leads/${lead.id}`, 404, admin, "PATCH", { version: 1, teamId: teamA, assignedToId: other.user.id });
+  await expectStatus(`/api/leads/${lead.id}`, 400, admin, "PATCH", { version: 1, assignedToId: dispatcher.user.id });
+  const assigned = await expectStatus(`/api/leads/${lead.id}`, 200, admin, "PATCH", { version: 1, teamId: teamA, campaignId: campaignA, assignedToId: dispatcher.user.id });
+  let version = Number((assigned.body as Record<string, unknown>).version);
+  await expectStatus(`/api/leads/${lead.id}`, 200, manager.cookie);
+  await expectStatus(`/api/leads/${lead.id}`, 200, dispatcher.cookie);
+  await expectStatus(`/api/leads/${lead.id}`, 404, other.cookie);
+  await expectStatus(`/api/leads/${lead.id}`, 403, dispatcher.cookie, "PATCH", { version, status: "CONTACTED" });
+  await expectStatus(`/api/leads/${lead.id}/notes`, 403, dispatcher.cookie, "POST", { body: "Dispatcher cannot change notes" });
+  await expectStatus(`/api/leads/${lead.id}`, 403, manager.cookie, "PATCH", { version, teamId: teamB, campaignId: null, assignedToId: null });
+  await expectStatus(`/api/leads/${lead.id}`, 404, manager.cookie, "PATCH", { version, campaignId: inaccessibleCampaign });
+  await expectStatus(`/api/leads/${lead.id}`, 404, manager.cookie, "PATCH", { version, assignedToId: other.user.id });
+  const privateNote = `${prefix}-internal-private-note`;
+  await expectStatus(`/api/leads/${lead.id}/notes`, 201, manager.cookie, "POST", { body: privateNote });
+  await expectStatus(`/api/leads/${lead.id}/notes`, 403, other.cookie, "POST", { body: "Cross-team dispatcher injection" });
+  const detail = await expectStatus(`/api/leads/${lead.id}`, 200, dispatcher.cookie);
+  check(detail.text.includes(privateNote) && !detail.text.includes("submissionHash") && !detail.text.includes("submissionKey"));
+  const publicPage = await expectStatus("/contact", 200); check(!publicPage.text.includes(privateNote));
+  for (const next of ["CONTACTED", "QUALIFIED", "ONBOARDING", "WON", "LOST"]) {
+    const updated = await expectStatus(`/api/leads/${lead.id}`, 200, manager.cookie, "PATCH", { version, status: next, followUpDate: "2026-10-13" });
+    version = Number((updated.body as Record<string, unknown>).version);
+    check((updated.body as Record<string, unknown>).status === next);
+  }
+  await expectStatus(`/api/leads/${lead.id}`, 409, manager.cookie, "PATCH", { version: 1, status: "NEW" });
+  await expectStatus(`/api/leads/${lead.id}`, 400, manager.cookie, "PATCH", { version, status: "CLOSED" });
+  await expectStatus(`/api/leads/${lead.id}`, 400, manager.cookie, "PATCH", { version, followUpDate: "2026-02-30" });
+  const events = await db.auditEvent.findMany({ where: { entityType: "lead", entityId: lead.id } });
+  check(events.filter(e => e.action === "LEAD_STATUS_CHANGED").length === 5 && events.some(e => e.action === "LEAD_ASSIGNMENT_CHANGED") && events.some(e => e.action === "LEAD_FOLLOW_UP_CHANGED") && events.some(e => e.action === "LEAD_NOTE_ADDED"));
+  check(!JSON.stringify(events).includes(privateNote), "Audit records reference note IDs without copying note text");
+  // Explicit *_test-only fixtures exercise totals above the old 50-row listing cap.
+  await db.lead.createMany({ data: Array.from({ length: 65 }, (_, index) => ({ name: `${prefix}-page-${index}`, companyName: `${prefix}-pagination`, teamId: teamA, campaignId: campaignA, assignedToId: dispatcher.user.id, source: "CONSULTATION" as const })) });
+  const filter = `q=${prefix}-pagination&source=CONSULTATION&status=NEW&teamId=${teamA}&campaignId=${campaignA}&assignedToId=${dispatcher.user.id}`;
+  const first = (await expectStatus(`/api/leads?${filter}`, 200, manager.cookie)).body as { items: { id: string }[]; total: number; page: number; pages: number };
+  const second = (await expectStatus(`/api/leads?${filter}&page=2`, 200, manager.cookie)).body as typeof first;
+  const last = (await expectStatus(`/api/leads?${filter}&page=999`, 200, manager.cookie)).body as typeof first;
+  check(first.total === 65 && first.pages === 4 && first.items.length === 20 && second.items.length === 20 && last.page === 4 && last.items.length === 5);
+  check(!first.items.some(a => second.items.some(b => a.id === b.id)), "Stable pagination must not repeat rows");
+  const realCounts = (await expectStatus("/api/leads/counts", 200, manager.cookie)).body as Record<string, number>;
+  check(realCounts.newInquiries === await db.lead.count({ where: { source: "CONSULTATION", status: "NEW", teamId: teamA, OR: [{ campaignId: null }, { campaignId: { in: [campaignA] } }] } }));
+  const dashboard = await expectStatus("/dashboard", 200, manager.cookie); check(dashboard.text.includes(`<strong>${realCounts.newInquiries}</strong>`));
+  const none = (await expectStatus(`/api/leads?teamId=${teamB}&assignedToId=${other.user.id}`, 200, manager.cookie)).body as { total: number }; check(none.total === 0);
+  const filteredExport = await expectStatus(`/api/workspace/leads/export?${filter}`, 200, manager.cookie); check(filteredExport.text.includes(`${prefix}-pagination`) && !filteredExport.text.includes(privateNote) && !filteredExport.text.includes("submissionKey"));
+  const privateExport = await expectStatus(`/api/workspace/leads/export?teamId=${teamB}`, 200, manager.cookie); check(!privateExport.text.includes("private-lead-b"));
+  await expectStatus(`/api/leads?page=0`, 400, admin); await expectStatus(`/api/leads?role=ADMIN`, 400, admin);
+  // Team-only inquiries remain manager-scoped; dispatchers need their own assignment.
+  const moved = await expectStatus(`/api/leads/${lead.id}`, 200, admin, "PATCH", { version, teamId: teamB, campaignId: null, assignedToId: other.user.id });
+  version = Number((moved.body as Record<string, unknown>).version);
+  await expectStatus(`/api/leads/${lead.id}`, 404, manager.cookie); await expectStatus(`/api/leads/${lead.id}`, 404, dispatcher.cookie); await expectStatus(`/api/leads/${lead.id}`, 200, other.cookie);
+  await expectStatus(`/api/leads/${lead.id}/notes`, 404, manager.cookie, "POST", { body: "Former team cannot add notes" });
+  await expectStatus(`/api/leads/${lead.id}`, 200, admin, "PATCH", { version, teamId: teamA, campaignId: null, assignedToId: null, status: "NEW" });
+  await expectStatus(`/api/leads/${lead.id}`, 200, manager.cookie); await expectStatus(`/api/leads/${lead.id}`, 404, dispatcher.cookie);
+  await db.rateLimit.deleteMany({});
+  const abusePayload = { ...body, email: `${prefix}-abuse@example.invalid` };
+  for (let i = 0; i < 3; i++) await expectStatus("/api/consultations", 201, "", "POST", { ...abusePayload, requestId: randomUUID() });
+  const blocked = await expectStatus("/api/consultations", 429, "", "POST", { ...abusePayload, requestId: randomUUID() }); check(Number(blocked.response.headers.get("retry-after")) > 0);
+  check(await db.lead.count({ where: { email: abusePayload.email } }) === 3);
+  await db.rateLimit.deleteMany({});
+  const parallel = await Promise.all(Array.from({ length: 18 }, (_, index) => api("/api/consultations", "", "POST", { ...body, requestId: randomUUID(), email: `${prefix}-parallel-${index}@example.invalid` })));
+  check(parallel.filter(r => r.response.status === 201).length === 12 && parallel.filter(r => r.response.status === 429).length === 6, "Trusted-IP limit must be atomic across simultaneous requests");
+  check(await db.lead.count({ where: { email: { startsWith: `${prefix}-parallel-` } } }) === 12);
+  console.log(`PASS: ${checks} public consultation / private lead checks (save, retry, validation, notes, all statuses, assignments, filters, pagination, counts, audits, team boundaries, exports and concurrent abuse limits).`);
+  void base;
+  return checks;
+}

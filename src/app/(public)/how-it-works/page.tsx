@@ -1,0 +1,6 @@
+import { publicPageMetadata } from "@/lib/site-metadata";
+import { ConsultationCTA, OnboardingSteps, PageIntro } from "@/components/public-sections";
+export const metadata = publicPageMetadata("How It Works", "Start with your operation, review dispatch scope and terms, prepare the essentials and plan the first dispatch.", "/how-it-works");
+export default function HowItWorksPage() {
+  return <main id="main-content" tabIndex={-1}><PageIntro eyebrow="HOW IT WORKS" title="A good working relationship starts with a clear plan." description="Before the first load, make sure the equipment, responsibilities and expectations are understood." /><section className="section container"><OnboardingSteps detailed /></section><section className="preparation-section"><div className="container preparation-grid"><div><p className="eyebrow">BEFORE THE FIRST CONVERSATION</p><h2>Bring the details.<br />We’ll discuss the fit.</h2></div><ul className="plain-list"><li>Equipment type and trailer specifications</li><li>Preferred lanes and areas you want to avoid</li><li>Typical availability and scheduling preferences</li><li>Your priorities and questions about dispatch</li></ul></div></section><ConsultationCTA /></main>;
+}

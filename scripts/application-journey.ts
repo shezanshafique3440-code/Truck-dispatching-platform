@@ -1,0 +1,45 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import type { PrismaClient } from "../src/generated/prisma/client";
+type Result = { response: Response; body: Record<string, unknown> | Record<string, unknown>[]; text: string };
+type Api = (path: string, cookie?: string, method?: string, body?: unknown, origin?: string) => Promise<Result>;
+type Member = { cookie: string; user: { id: string } };
+export async function verifyApplicationJourney(c: { api: Api; db: PrismaClient; admin: string; manager: Member; dispatcher: Member; other: Member; teamA: string; campaignA: string; prefix: string }) {
+  assert(new URL(process.env.TEST_DATABASE_URL!).pathname.endsWith("_test"));
+  const { api, db, admin, manager, dispatcher, other, teamA, campaignA, prefix } = c;
+  let checks = 0;
+  const check = (value: unknown, reason?: string) => { assert.ok(value, reason); checks++; };
+  async function request(path: string, status: number, cookie = "", method = "GET", body?: unknown) { const r = await api(path, cookie, method, body); assert.equal(r.response.status, status, `${method} ${path}: ${r.text.slice(0, 120)}`); checks++; return r.body as Record<string, unknown>; }
+  await request("/api/users", 401); await request("/api/users", 403, manager.cookie); await request("/api/users", 403, dispatcher.cookie); const users = await request("/api/users?page=4", 200, admin) as { total: number; items: unknown[] }; check(users.total > 60 && users.items.length > 0 && users.items.length <= 20, "Admin user pagination includes the complete 50+ roster");
+  const reportPath = `/api/performance/report?campaignId=${campaignA}&currency=USD&period=monthly&anchor=2026-07-20`;
+  const initial = await request(reportPath, 200, manager.cookie) as { totals: { records: number; netFees: string }; leaderboard: unknown[] };
+  check(initial.totals.records === 0 && initial.leaderboard.length === 0);
+  await db.rateLimit.deleteMany();
+  const inquiry = { requestId: randomUUID(), contactName: `${prefix}-joined-contact`, companyName: `${prefix}-joined-carrier`, email: `${prefix}-joined@example.invalid`, phone: "+1 (202) 555-0180", equipmentType: "dry-van", fleetSize: 2, preferredContactMethod: "EMAIL", message: "Isolated complete journey fixture: discuss dispatch scope and preferred lanes." };
+  const saved = await request("/api/consultations", 201, "", "POST", inquiry); check(saved.saved === true && saved.notification === "not_configured");
+  const lead = await db.lead.findUniqueOrThrow({ where: { submissionKey: inquiry.requestId } }); check(lead.teamId === null && lead.source === "CONSULTATION");
+  await request(`/api/leads/${lead.id}`, 401); await request(`/api/leads/${lead.id}`, 404, manager.cookie);
+  const assigned = await request(`/api/leads/${lead.id}`, 200, admin, "PATCH", { version: 1, teamId: teamA, campaignId: campaignA, assignedToId: dispatcher.user.id, status: "CONTACTED", followUpDate: "2026-07-21" });
+  check(assigned.assignedToId === dispatcher.user.id && assigned.campaignId === campaignA);
+  const qualified = await request(`/api/leads/${lead.id}`, 200, manager.cookie, "PATCH", { version: assigned.version, status: "QUALIFIED" }); check(qualified.status === "QUALIFIED");
+  await request(`/api/leads/${lead.id}/notes`, 201, manager.cookie, "POST", { body: "Private joined-journey qualification note." });
+  const ownLead = await request(`/api/leads/${lead.id}`, 200, dispatcher.cookie); check(JSON.stringify(ownLead).includes(lead.id));
+  await request(`/api/leads/${lead.id}`, 404, other.cookie);
+  const draft = await request("/api/performance", 201, dispatcher.cookie, "POST", { campaignId: campaignA, date: "2026-07-20", currency: "USD", callsMade: 12, followUpsCompleted: 3, qualifiedLeads: 1, carriersSigned: 1, loads: 0, dispatchFees: "50.10", refunds: "0.10", adjustments: "-0.01", grossRevenue: "1200.00", notes: `Isolated manually recorded activity following inquiry ${lead.id}.` });
+  check(draft.state === "DRAFT"); check((await request(reportPath, 200, manager.cookie) as typeof initial).totals.records === 0);
+  await request(`/api/performance/${draft.id}`, 400, dispatcher.cookie, "PATCH", { action: "saveDraft", version: draft.version, changes: { date: "0000-01-01" } });
+  const submitted = await request(`/api/performance/${draft.id}`, 200, dispatcher.cookie, "PATCH", { action: "submit", version: draft.version });
+  check(submitted.state === "SUBMITTED"); check((await request(reportPath, 200, manager.cookie) as typeof initial).totals.records === 0);
+  await request(`/api/performance/${draft.id}`, 403, dispatcher.cookie, "PATCH", { action: "approve", version: submitted.version });
+  await request(`/api/performance/${draft.id}`, 404, other.cookie, "PATCH", { action: "approve", version: submitted.version });
+  const approved = await request(`/api/performance/${draft.id}`, 200, manager.cookie, "PATCH", { action: "approve", version: submitted.version }); check(approved.state === "APPROVED");
+  const final = await request(reportPath, 200, manager.cookie) as { totals: { records: number; carriersSigned: number; netFees: string; grossRevenue: string }; leaderboard: { dispatcherId: string; rank: number; netFees: string }[] };
+  check(final.totals.records === 1 && final.totals.carriersSigned === 1 && final.totals.netFees === "49.99" && final.totals.grossRevenue === "1200.00");
+  check(final.leaderboard.length === 1 && final.leaderboard[0].dispatcherId === dispatcher.user.id && final.leaderboard[0].rank === 1);
+  const outside = await request(reportPath, 200, other.cookie) as typeof final; check(outside.totals.records === 0 && outside.leaderboard.length === 0);
+  await request(`/api/leads/${lead.id}`, 200, manager.cookie, "PATCH", { version: qualified.version, status: "WON" });
+  const events = await db.auditEvent.findMany({ where: { entityId: { in: [lead.id, String(draft.id)] } } });
+  check(events.some(e => e.action === "LEAD_ASSIGNMENT_CHANGED") && events.some(e => e.action === "PERFORMANCE_APPROVED"));
+  console.log(`PASS: ${checks} joined inquiry → assignment → manual performance → submission → approval → leaderboard checks.`);
+  return checks;
+}
