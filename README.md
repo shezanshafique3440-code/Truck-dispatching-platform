@@ -84,3 +84,7 @@ Use `Dockerfile` and `compose.production.yml`, rather than the passwordless deve
 Official Next.js, Tailwind PostCSS, Prisma ORM 7 and Better Auth integration documentation was checked before installing the relevant packages. Prisma 7 is the supported stable line used here; Prisma 8 release-candidate instructions are not used.
 
 Scoped overrides pin `@prisma/config`'s `deepmerge-ts` to 8.0.0 and Prisma CLI's `mysql2` to 3.24.6 to resolve reported advisories. Config loading, generation and migrations were tested with these overrides. Runtime audit passes. The previously documented high-severity findings in the development lint-tool `braces` chain remain unresolved; review them when updating Next.js/ESLint rather than applying npm's incompatible downgrade blindly.
+
+## Local DEMO data
+
+For an explicitly opted-in, persistent synthetic workspace (64 dispatchers and 60 days of performance), see [Local DEMO data](docs/DEMO_DATA.md). Run `NODE_ENV=development npm run db:seed:demo -- --confirm-local-demo` only against a migrated loopback development database. Repeat runs preserve existing data; no passwords or login accounts are created and production startup never seeds data. `npm run test:demo` checks seed repeatability and preservation in a separate temporary PostgreSQL database.

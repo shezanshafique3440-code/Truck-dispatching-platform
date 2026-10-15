@@ -143,3 +143,49 @@ svg { flex-shrink:0; }
 @media(max-width:520px) { .dashboard-shell main { padding:28px 20px; }.dashboard-shell h1 { font-size:2.1rem; overflow-wrap:anywhere; }.workspace-title-row { flex-direction:column; gap:18px; }.workspace-title-row .button { width:auto; }.workspace-topline { font-size:.53rem; }.workspace-shortcuts { margin-top:28px; }.auth-card { padding:26px; }.workspace-form .button { width:100%; }.auth-page { padding-block:50px; }.auth-page h1 { font-size:2.5rem; }.auth-notice { padding:22px; }.settings-list { grid-template-columns:1fr; } }
 
 .dashboard-shell h1 { overflow-wrap:anywhere; }
+
+/* Northlane visual system: CSS-only route motion with a static accessible fallback. */
+.hero { background:radial-gradient(ellipse at 85% 10%,#233953 0,transparent 55%),#0b1728; color:#f5f8fc; padding-block:84px; overflow:hidden; }
+.hero h1 { font-size:clamp(2.7rem,4.5vw,4.7rem); letter-spacing:-.055em; }
+.hero h1 span { color:#ffab70; }
+.hero .eyebrow { color:#ffb681; }
+.hero-description { color:#c1cedf; }
+.hero-note { color:#a9bad0; }
+.hero .text-link { color:#ecf3fc; }
+.hero-actions { flex-direction:row; flex-wrap:wrap; align-items:center; gap:24px; }
+.hero .button { border-radius:8px; box-shadow:0 8px 28px #0003; }
+.truck-scene { border:1px solid #ffffff25; border-radius:24px; background:#0b1728; box-shadow:0 30px 70px #0004; overflow:hidden; min-width:0; }
+.scene-heading,.scene-footer { display:flex; align-items:center; gap:12px; padding:20px 24px; color:#bdcde0; font-size:.65rem; letter-spacing:.1em; }
+.scene-heading { justify-content:space-between; }
+.scene-heading span:last-child { letter-spacing:0; color:#9aafc8; }
+.truck-scene svg { display:block; width:100%; height:auto; }
+.scene-footer { border-top:1px solid #ffffff14; letter-spacing:0; font-size:.76rem; }
+.scene-footer>span:last-child { margin-left:auto; color:#ffab70; font-size:1.2rem; }
+.scene-beacon { width:7px; height:7px; border-radius:50%; background:#ff9b51; box-shadow:0 0 0 5px #ff9b5118; }
+.audience-strip { background:#102137; color:#c6d5e7; border-color:#ffffff12; }
+.audience-strip .container>span:first-child { color:#ffb681; }
+.service-card,.equipment-card,.workspace-shortcuts a { border-radius:14px; }
+.service-card { transition:transform .2s,box-shadow .2s; }
+.service-card:hover { transform:translateY(-4px); box-shadow:0 16px 36px #0b17280c; }
+.equipment-section { background:#f0f4f8; }
+.consultation-panel { border-radius:20px; background:radial-gradient(ellipse at top right,#29435e,transparent 65%),#0b1728; }
+.dashboard-shell { background:#f1f4f8; }
+.dashboard-shell .dashboard-sidebar { background:linear-gradient(165deg,#132840,#081321); }
+.dashboard-sidebar nav a,.dashboard-identity button { border-radius:8px; }
+.workspace-welcome { padding:32px; border-radius:18px; background:radial-gradient(ellipse at right top,#284663,transparent 75%),#102137; color:#f4f8ff; border-top:3px solid var(--orange); }
+.workspace-welcome h1 { font-size:clamp(2rem,3.4vw,3.3rem); }
+.workspace-welcome .eyebrow { color:#ffad74; margin-bottom:14px; }
+.workspace-welcome .muted { color:#c1cee0; }
+.lead-metrics>a,.performance-cards>div,.performance-chart,.workspace-table-wrap,.operation-panel { border-radius:12px; box-shadow:0 4px 18px #0b172804; }
+.performance-cards>div { border-top-color:#f97316; }
+.workspace-table-wrap th { background:#eaf0f6; }
+@media(prefers-reduced-motion:no-preference) {
+  .road-dashes { animation:road-travel 1.8s linear 2; }
+  .convoy-near { animation:truck-travel 4s ease-in-out 1; }
+  .convoy-far { animation:truck-travel 4.5s ease-in-out 1; }
+  @keyframes road-travel { to { stroke-dashoffset:100; } }
+  @keyframes truck-travel { 0%,100% { translate:0 0; } 50% { translate:16px -2px; } }
+}
+@media(max-width:800px) { .hero { padding-block:48px; }.hero-grid { gap:36px; }.workspace-welcome { padding:25px; } }
+@media(max-width:520px) { .scene-heading,.scene-footer { padding:16px; }.hero-actions { align-items:stretch; flex-direction:column; }.hero-actions .button { text-align:center; }.workspace-welcome { padding:22px; } }
+.demo-notice { display:flex; flex-wrap:wrap; gap:8px 18px; padding:16px 20px; margin-top:24px; border:1px solid #eac09c; border-left:3px solid #ae4b09; background:#fff5eb; color:#733309; border-radius:10px; font-size:.8rem; }

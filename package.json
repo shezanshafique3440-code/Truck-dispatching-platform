@@ -19,7 +19,9 @@
     "test:smoke": "tsx scripts/smoke.ts",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "security:prune": "tsx scripts/prune-security.ts",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "db:seed:demo": "tsx scripts/seed-demo.ts",
+    "test:demo": "node scripts/verify-demo-seed.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",

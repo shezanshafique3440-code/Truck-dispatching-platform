@@ -2,7 +2,7 @@
 
 ## Public presentation and discovery
 
-Public pages keep the existing restrained navy/white/orange brand, proposed service copy and visibly labeled concept truck image. Responsive Next Image sources now match the actual content widths; the hero is preloaded, secondary photography stays lazy and fixed image dimensions/aspect ratios prevent layout movement. The original image remains unchanged and has ordinary public-asset read permissions. A local SVG icon and a prerendered 1200×630 PNG sharing card use the central company name, with no unverified business numbers, certifications, prices or testimonials.
+Public pages use a navy/white/orange brand and proposed service copy. The homepage hero uses a lightweight inline SVG truck illustration with CSS-only motion that finishes within five seconds. Reduced-motion preferences leave it static. Other concept photography remains labeled as illustrative. A local SVG icon and prerendered 1200×630 PNG sharing card use the central company name, with no unverified business numbers, certifications, prices or testimonials.
 
 `PUBLIC_SITE_URL` is an optional approved **public HTTPS origin**. Set it before the production build. When absent, a valid public HTTPS `APP_URL` is the fallback. Credentials, paths, queries, fragments, HTTP and loopback URLs are never accepted as an explicit SEO origin. No request Host is trusted to choose canonicals. Until a real public origin is configured, canonicals/share-image URLs remain unset, the sitemap is empty and crawling is discouraged; no company domain is invented. Next normalizes the equivalent root URLs with/without a trailing slash.
 
